@@ -478,6 +478,11 @@ private:
         detail::merge_desc_sorted_arrays(top_k_, synced_v.top_k_);
       }
     }
+
+    CUTLASS_DEVICE
+    void reduce_with(const TopKResult& other) {
+      detail::merge_desc_sorted_arrays(top_k_, other.top_k_);
+    }
   };
 
 public:
@@ -498,15 +503,12 @@ public:
   can_implement(ProblemShape const& problem_shape, Arguments const& args) {
     auto [M, N, K, L] = problem_shape;
     auto [tile_M, tile_N, tile_K] = CtaTileShapeMNK{};
-#if defined(__CUDA_ARCH__) || defined(__SYCL_CUDA_ARCH__)
     // Cross CTA reduction is not possible because there is no guarantee that all CTAs run
     // concurrently.
     // Cross epilogue tile reduction is possible, but re-visiting and applying reduction
     // to accumulators is only possible for the current epilogue tile.
-    auto [epi_M, epi_N] = EpilogueTile{};
+    auto [epi_M, epi_N, epi_K] = EpilogueTile{};
     return N <= tile_N && N <= epi_N && N >= TopK;
-#endif
-    return true;
   }
 
   template <class ProblemShape>
@@ -604,6 +606,95 @@ public:
       auto tCrTopK_f = filter(tCrTopK);
       auto tCrSoftmax_f = filter(tCrSoftmax);
 
+#if defined(SYCL_INTEL_TARGET)
+      static constexpr auto row = decltype(size<0>(tCrTopK_f))::value;
+      static constexpr int col = decltype(size<1>(tCrTopK_f))::value;
+      static constexpr uint32_t SgN = decltype(size<1>(lane_layout_MN))::value;
+      using TopKRes = cute::remove_cvref_t<decltype(tCrTopK_f(0))>;
+      Tensor local_topk = make_tensor<TopKRes>(Shape<Int<row>>{});
+      // Initialize and merge columns
+      CUTLASS_PRAGMA_UNROLL
+      for (int i = 0; i < row; i++) {
+        local_topk(i) = TopKRes();
+        detail::add_element_to_desc_sorted_array(local_topk(i).top_k_, tCrTopK_f(i, 0));
+      }
+      CUTLASS_PRAGMA_UNROLL
+      for (int i = 1; i < col; i++) {
+        auto r_col = tCrTopK_f(_, i);
+        CUTLASS_PRAGMA_UNROLL
+        for (int j = 0; j < row; j++) {
+          detail::add_element_to_desc_sorted_array(local_topk(j).top_k_, r_col(j));
+        }
+      }
+      // 1. reduce the result on subgroup level
+      auto sg = compat::get_nd_item<1>().get_sub_group();
+      auto group = compat::get_nd_item<1>().get_group();
+      CUTLASS_PRAGMA_UNROLL
+      for (int i = 0; i < row; i++) {
+        for (int offset = sg.get_local_range()[0] / 2; offset > 0; offset /= 2) {
+          auto other = sycl::shift_group_left(sg, local_topk(i), offset);
+          local_topk(i).reduce_with(other);
+        }
+      }
+      // 2. reduce the result on group level
+      auto sg_group_id = sg.get_group_id();
+      auto sg_group_id_n = sg_group_id % SgN;
+      auto sg_local_id = sg.get_local_id()[0];
+      auto slm_base = smem_buffer(_, _, sg_group_id / SgN);
+      static constexpr auto step = SgN / IntelXeXMX16::SubgroupSize;
+      static constexpr auto n_step = row / SgN;
+      if constexpr (row < IntelXeXMX16::SubgroupSize) {
+        if (sg_local_id < row) {
+          slm_base(sg_local_id, sg_group_id_n) = local_topk(sg_local_id);
+        }
+      } else {
+        CUTLASS_PRAGMA_UNROLL
+        for (int i = 0; i < step; i++) {
+          slm_base(sg_local_id * step + i, sg_group_id_n) = local_topk(i + step * sg_local_id);
+        }
+      }
+      sycl::group_barrier(group);
+      Tensor s_slice = make_tensor(static_cast<decltype(slm_base) &&>(slm_base).data(), 
+                            make_shape(Int<n_step>{}, Int<SgN>{}, Int<step>{}, Int<IntelXeXMX16::SubgroupSize>{}));
+      if constexpr (SgN <= row) {
+        auto local_vec = s_slice(_, sg_group_id_n, _, sg_local_id);
+        CUTLASS_PRAGMA_UNROLL
+        for (int i = 0; i < n_step; i++) {
+          auto local_topk_temp = local_vec(i, 0);
+          CUTLASS_PRAGMA_UNROLL
+          for (int j = 1; j < step; j++) {
+            local_topk_temp.reduce_with(local_vec(i, j));
+          }
+          for (int offset = sg.get_local_range()[0] / 2; offset > 0; offset /= 2) {
+            auto other = sycl::shift_group_left(sg, local_topk_temp, offset);
+            local_topk_temp.reduce_with(other);
+          }
+          if (sg_local_id == i) {
+            s_slice(i, sg_group_id_n, 0, 0) = local_topk_temp;
+          }
+        }
+      } else {
+        auto local_topk_temp = s_slice(0, sg_group_id_n, 0, sg_local_id);
+        if (sg_group_id_n < row) {
+          CUTLASS_PRAGMA_UNROLL
+          for (int j = 1; j < step; j++) {
+            local_topk_temp.reduce_with(s_slice(0, sg_group_id_n, j, sg_local_id));
+          }
+          for (int offset = sg.get_local_range()[0] / 2; offset > 0; offset /= 2) {
+            auto other = sycl::shift_group_left(sg, local_topk_temp, offset);
+            local_topk_temp.reduce_with(other);
+          }
+          if (sg_local_id == 0) {
+            s_slice(0, sg_group_id_n, 0, 0) = local_topk_temp;
+          }
+        }
+      }
+      sycl::group_barrier(group);
+      CUTLASS_PRAGMA_UNROLL
+      for (int i = 0; i < row; i++) {
+        tCrSoftmax_f(i) = slm_base(i).reduce_final();
+      }
+#else
       // The pattern here is: reduce Top-K first, then compute logsumexp, keep it and the
       // last element of Top-K, use the latter to mask the visited results, and the former
       // to apply softmax.
@@ -669,6 +760,7 @@ public:
         }
       }
 
+#endif
       //
       // 4. Re-visit and apply top-K and softmax
       //
@@ -731,7 +823,7 @@ public:
     Layout warp_layout_MN = make_layout(filter(get<0>(ref2warp)), filter(get<1>(ref2warp)));    //  warp_mn -> warp_idx
 
     // Make sure there's only one warp across N so we can use warp shuffle intrinsics for reduction.
-    static_assert(decltype(size<1>(warp_layout_MN))::value <= 1);
+    // static_assert(decltype(size<1>(warp_layout_MN))::value <= 1);
 
     // Reduction layout
     //   We're assuming all elements in a row (over which we're performing the reduction) are

@@ -403,7 +403,7 @@ struct Result {
           for (int top_k_idx = 0; top_k_idx < TopK; ++top_k_idx) {
             sum = sum + cutlass::fast_exp(top_k[top_k_idx] - max);
           }
-
+          std::cout << "Row " << i << ": top_k[0]=" << top_k[0] << ", top_k[1]=" << top_k[1] << ", sum=" << sum << "\n";
           for (int j=0; j < options.n; ++j) {
             auto val = tensor_ref_D.host_view().ref().at({i + k * options.m, j});
             if (val < top_k[TopK - 1]) {
@@ -413,6 +413,7 @@ struct Result {
               auto softmax_val = cutlass::fast_exp(val - max) / sum;
               tensor_ref_D.host_view().ref().at({i + k * options.m, j}) = static_cast<ElementD>(softmax_val);
             }
+            std::cout << "  Col " << j << ": val=" << val << ", masked=" << (val < top_k[1] ? "yes" : "no") << "\n";
           }
         }
       }
@@ -426,9 +427,37 @@ struct Result {
       tensor_ref_D.host_view());
     bool passed = err < options.eps;
 
-    if (options.m <= 32 && options.n <= 32) {
-      std::cout << "GEMM output:\n" << tensor_D.host_view() << "\n\n";
-      std::cout << "Reference output:\n" << tensor_ref_D.host_view() << "\n\n";
+    std::cout << "Non-zero count summary:\n";
+    for (int l_idx = 0; l_idx < options.l; ++l_idx) {
+      for (int m_idx = 0; m_idx < options.m; ++m_idx) {
+        int gemm_nonzero = 0;
+        int ref_nonzero = 0;
+        for (int n_idx = 0; n_idx < options.n; ++n_idx) {
+          cutlass::MatrixCoord coord(m_idx + l_idx * options.m, n_idx);
+          auto gemm_val = tensor_D.host_view().ref().at(coord);
+          auto ref_val = tensor_ref_D.host_view().ref().at(coord);
+
+          if (gemm_val != 0) ++gemm_nonzero;
+          if (ref_val != 0) ++ref_nonzero;
+        }
+        std::cout << "Batch " << l_idx << ", Row " << m_idx << ": GEMM non-zeros=" << gemm_nonzero << ", Ref non-zeros=" << ref_nonzero << "\n";
+      }
+    }
+    std::cout << "\n";
+    std::cout << "Non-zero elements in GEMM output and Reference output:\n";
+    for (int l_idx = 0; l_idx < options.l; ++l_idx) {
+      std::cout << "Batch " << l_idx << ":\n";
+      for (int m_idx = 0; m_idx < options.m; ++m_idx) {
+        for (int n_idx = 0; n_idx < options.n; ++n_idx) {
+          cutlass::MatrixCoord coord(m_idx + l_idx * options.m, n_idx);
+          auto gemm_val = tensor_D.host_view().ref().at(coord);
+          auto ref_val = tensor_ref_D.host_view().ref().at(coord);
+          if (gemm_val != 0 || ref_val != 0) {
+            std::cout << "Position (" << m_idx << ", " << n_idx << " in batch " << l_idx << "): GEMM=" << gemm_val << ", Ref=" << ref_val << "\n";
+          }
+        }
+      }
+      std::cout << "\n";  // 分隔批次
     }
 
     std::cout << "  Disposition: " << (passed ? "Passed" : "Failed") << " \t Relative error: " << err << std::endl;
