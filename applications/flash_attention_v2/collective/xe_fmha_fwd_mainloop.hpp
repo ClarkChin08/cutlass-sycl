@@ -40,6 +40,11 @@
 #include "cute/atom/mma_atom.hpp"
 #include "fmha_fusion.hpp"
 
+#include <cute/util/print_tensor.hpp>
+#define PRINT(x) if (cute::thread(LOG_THREAD, LOG_GROUP)) { print(#x ": "); print(x); print("\n"); }
+static constexpr int LOG_THREAD = 0;
+static constexpr int LOG_GROUP = 0;
+
 namespace cutlass::fmha {
 
 template <int Stages> class XeDefault {};   // Default FMHA mainloop, P in registers.
@@ -275,6 +280,22 @@ struct FMHAFwdMainloop<XeDefault<Stages>, CausalMask_,
 
       /* GEMM 1: S = K * Q */
       clear(tSrS);    /* TODO: fuse w/ initial gemm call */
+      if (cute::thread(LOG_THREAD, LOG_GROUP)) {
+        print("K: %d, Before Q*K GEMM: tSrS: ", K);
+        PRINT(tSrS);
+        PRINT(tQrQ);
+        PRINT(tKrK);
+        print("tQrQ: ");
+        for(int i = 0; i < tQrQ.size(); i++) {
+          print(tQrQ(i)); print(", ");
+        }
+        print("\n");
+        print("tKrK: ");
+        for(int i = 0; i < tKrK.size(); i++) {
+          print(tKrK(i)); print(", ");
+        }
+        print("\n");
+      }
       for (int D = 0; D < size<4>(tKgK); D++) {
         copy(copy_q, tQgQ(_,_,_,D),   tQrQ);
         copy(copy_k, tKgK(_,_,_,K,D), tKrK);
@@ -283,6 +304,14 @@ struct FMHAFwdMainloop<XeDefault<Stages>, CausalMask_,
         reorder(tKrK, tSrK);
 
         cute::gemm(mma_qk, tSrQ, tSrK, tSrS);
+      }
+
+      if (cute::thread(LOG_THREAD, LOG_GROUP)) {
+        print("K: %d, After Q*K GEMM: tSrS: ", K);
+        for(int i = 0; i < tSrS.size(); i++) {
+          print(tSrS(i)); print(", ");
+        }
+        print("\n");
       }
 
       /* V prefetch for GEMM 2 */
@@ -302,11 +331,24 @@ struct FMHAFwdMainloop<XeDefault<Stages>, CausalMask_,
         }
       }
 
+
       /* TODO: causal masking */
       static_assert(!CausalMask, "Causal mask unimplemented");
 
       /* Apply softmax and scaling */
       softmax(K == 0, tSrS, tA_max, tA_sum, tArA);
+      if (cute::thread(LOG_THREAD, LOG_GROUP)) {
+        print("K: %d, After softmax: tA_max: ", K);
+        for(int i = 0; i < tA_max.size(); i++) {
+          print(tA_max(i)); print(", ");
+        }
+        print("\n");
+        print("K: %d, After softmax: tA_sum: ", K);
+        for(int i = 0; i < tA_sum.size(); i++) {
+          print(tA_sum(i)); print(", ");
+        }
+        print("\n");
+      }
 #if 0
       reorder(tSrS, tArP);
 #else
@@ -321,6 +363,8 @@ struct FMHAFwdMainloop<XeDefault<Stages>, CausalMask_,
         reorder(tVrV, tArV);
         cute::gemm(mma_pv, tArP, tArV, tArA(_,_,_,VV));
       }
+
+
 
       /* K prefetch */
       for (int D = 0; D < size<4>(pKgK); D++) {
