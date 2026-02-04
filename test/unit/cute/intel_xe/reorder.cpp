@@ -318,11 +318,11 @@ TEST(PVC_CuTe_Xe_Reorder, subgroup_int8) {
 // are packed into a single byte, the kernel's round-robin memory access pattern causes
 // data corruption. For example, int4_t value -5 gets corrupted to 65 due to improper
 // byte packing/unpacking during the reorder operation.
-TEST(PVC_CuTe_Xe_Reorder, DISABLED_subbyte_uint4_identity) {
+TEST(PVC_CuTe_Xe_Reorder, subbyte_uint4_identity) {
   IdentityReorderTest<uint4_t, 8, 32, 9>::run();
 }
 
-TEST(PVC_CuTe_Xe_Reorder, DISABLED_subbyte_int4_identity) {
+TEST(PVC_CuTe_Xe_Reorder, subbyte_int4_identity) {
   IdentityReorderTest<int4_t, 8, 32, 10>::run();
 }
 
@@ -450,19 +450,19 @@ TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, tensor_conversion_half_to_float) {
 
 // SubgroupTensor sub-byte conversions (expected failures)
 
-// TEST(PVC_CuTe_Xe_Reorder_Conversion, DISABLED_conversion_uint8_to_uint4_subgroup) {
-//   ConversionSubgroupTest<uint8_t, uint4_t, 8, 16, 400>::run();
-// }
+TEST(PVC_CuTe_Xe_Reorder_Conversion, conversion_uint8_to_uint4_subgroup) {
+  ConversionSubgroupTest<uint8_t, uint4_t, 8, 16, 400>::run();
+}
 
-// TEST(PVC_CuTe_Xe_Reorder_Conversion, DISABLED_conversion_int8_to_int4_subgroup) {
-//   ConversionSubgroupTest<int8_t, int4_t, 8, 16, 401>::run();
-// }
+TEST(PVC_CuTe_Xe_Reorder_Conversion, conversion_int8_to_int4_subgroup) {
+  ConversionSubgroupTest<int8_t, int4_t, 8, 16, 401>::run();
+}
 
 // Tensor-based sub-byte conversions (expected failures)
-// TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, DISABLED_conversion_uint8_to_uint4_tensor) {
-//   ConversionTensorTest<uint8_t, uint4_t, 8, 16, 402>::run();
-// }
+TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, conversion_uint8_to_uint4_tensor) {
+  ConversionTensorTest<uint8_t, uint4_t, 8, 16, 402>::run();
+}
 
-// TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, DISABLED_conversion_int8_to_int4_tensor) {
-//   ConversionTensorTest<int8_t, int4_t, 8, 16, 403>::run();
-// }
+TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, conversion_int8_to_int4_tensor) {
+  ConversionTensorTest<int8_t, int4_t, 8, 16, 403>::run();
+}

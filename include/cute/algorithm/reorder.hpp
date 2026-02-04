@@ -227,7 +227,7 @@ reorder_impl(ReorderDispatchConvertRelayout const&,
   using NewSrcType = conditional_t<is_subbyte_v<SrcType>, upcast_subbyte_t<SrcType>, DstType>;
   auto src_c = make_fragment_like<NewSrcType>(src);
 
-  reorder(src, src_c, slayout, slayout);
+  reorder_impl(Universal_Reorder_UU<SrcType, NewSrcType>{}, src, src_c, slayout, slayout);
   reorder(src_c, dst, slayout, dlayout);
 }
 
@@ -248,7 +248,7 @@ reorder_impl(ReorderDispatchRelayoutConvert const&,
   auto dst_c = make_fragment_like<NewDstType>(dst);
 
   reorder(src, dst_c, slayout, dlayout);
-  reorder(dst_c, dst, dlayout, dlayout);
+  reorder_impl(Universal_Reorder_UU<NewDstType, DstType>{}, dst_c, dst, dlayout, dlayout);
 }
 
 
