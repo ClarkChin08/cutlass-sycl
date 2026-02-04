@@ -230,8 +230,9 @@ reorder_impl(ReorderDispatchConvertRelayout const&,
   reorder_impl(Universal_Reorder_UU<SrcType, NewSrcType>{}, src, src_c, slayout, slayout);
   // When NewSrcType == DstType (both are the same type), use dlayout for both to avoid
   // subbyte layout mismatch. Sub-byte types (<8 bits) use swizzled layouts to account
-  // for byte-level packing, while regular types (>=8 bits) don't. Using mismatched
-  // layouts would cause incorrect data mapping during the reorder operation.
+  // for byte-level packing (e.g., packing 2 uint4_t values into a single byte), while
+  // regular types (>=8 bits) don't. Using mismatched layouts would cause incorrect data
+  // mapping during the reorder operation.
   if constexpr (is_same_v<NewSrcType, DstType>) {
     reorder(src_c, dst, dlayout, dlayout);
   } else {
@@ -257,8 +258,9 @@ reorder_impl(ReorderDispatchRelayoutConvert const&,
 
   // When NewDstType == SrcType (both are the same type), use slayout for both to avoid
   // subbyte layout mismatch. Sub-byte types (<8 bits) use swizzled layouts to account
-  // for byte-level packing (e.g., 2 uint4_t per byte), while regular types (>=8 bits)
-  // don't. Using mismatched layouts would cause incorrect data mapping during reorder.
+  // for byte-level packing (e.g., packing 2 uint4_t values into a single byte), while
+  // regular types (>=8 bits) don't. Using mismatched layouts would cause incorrect data
+  // mapping during reorder.
   if constexpr (is_same_v<NewDstType, SrcType>) {
     reorder(src, dst_c, slayout, slayout);
   } else {
