@@ -227,7 +227,9 @@ reorder_impl(ReorderDispatchConvertRelayout const&,
   using NewSrcType = conditional_t<is_subbyte_v<SrcType>, upcast_subbyte_t<SrcType>, DstType>;
   auto src_c = make_fragment_like<NewSrcType>(src);
 
-  reorder(src, src_c, slayout, slayout);
+  // First step: type conversion (same layout) - use Universal_Reorder_UU directly to avoid recursion
+  reorder_impl(Universal_Reorder_UU<SrcType, NewSrcType>{}, src, src_c, slayout, slayout);
+  // Second step: layout change (same type or already converted)
   reorder(src_c, dst, slayout, dlayout);
 }
 
@@ -247,8 +249,10 @@ reorder_impl(ReorderDispatchRelayoutConvert const&,
   using NewDstType = conditional_t<is_same_v<SrcType, DstType>, upcast_subbyte_t<DstType>, SrcType>;
   auto dst_c = make_fragment_like<NewDstType>(dst);
 
+  // First step: layout change (same type or compatible)
   reorder(src, dst_c, slayout, dlayout);
-  reorder(dst_c, dst, dlayout, dlayout);
+  // Second step: type conversion (same layout) - use Universal_Reorder_UU directly to avoid recursion
+  reorder_impl(Universal_Reorder_UU<NewDstType, DstType>{}, dst_c, dst, dlayout, dlayout);
 }
 
 
