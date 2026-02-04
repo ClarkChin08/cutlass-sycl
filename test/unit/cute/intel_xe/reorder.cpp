@@ -135,6 +135,8 @@ void initialize_conversion_source(cutlass::host_vector<SrcType>& host_src) {
       host_src[i] = static_cast<SrcType>(i);
     } else if constexpr (std::is_same_v<SrcType, int8_t>) {
       host_src[i] = static_cast<SrcType>(i % 128);
+    } else if constexpr (std::is_same_v<SrcType, uint8_t>) {
+      host_src[i] = static_cast<SrcType>(i % 16);
     }
   }
 }
