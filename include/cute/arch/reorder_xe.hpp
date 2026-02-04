@@ -1428,29 +1428,27 @@ template <> struct Xe_Reorder<ReorderKind::UV, float_e2m1_t, float_e2m1_t> : Xe_
 template <>
 struct Xe_Reorder<ReorderKind::UU, uint8_t, uint4_t>
 {
-  using SRegisters = intel::uchar4[1];  // 64 uint8_t elements (64 bytes)
-  using DRegisters = intel::uchar2[1];  // 64 uint4_t elements packed into 32 bytes
+  using SRegisters = intel::uchar4[1];  // 64 uint8_t elements (64 bytes in 4 GRFs)
+  using DRegisters = intel::uchar2[1];  // 64 uint4_t elements packed into 32 bytes (2 GRFs)
 
   CUTE_HOST_DEVICE static void
   reorder(intel::uchar4 const& src0, intel::uchar2& dst0)
   {
 #if defined(CUTE_ARCH_REORDER_XE_ENABLED)
-    const uint32_t lshifts = 0x00000004;
     asm (     /* Narrowing conversion: 64 uint8 -> 64 uint4 (packed in 32 bytes) */
       "{\n"
       ".decl IN_UB  v_type=G type=UB num_elts=64 alias=<%1,0>\n"
       ".decl OUT_UB v_type=G type=UB num_elts=32 alias=<%0,0>\n"
-      ".decl LSHIFTS v_type=G type=UW num_elts=2 alias=<%2,0>\n"
-      ".decl TMP_UB v_type=G type=UB num_elts=64 align=64\n"
-      // Mask lower 4 bits from odd elements and shift left by 4
-      "shl (M1_NM, 32) TMP_UB(0,0)<2> IN_UB(0,1)<2;1,0> LSHIFTS(0,0)<0;1,0>\n"
-      // Mask lower 4 bits from even elements
-      "and (M1_NM, 32) TMP_UB(0,1)<2> IN_UB(0,0)<2;1,0> 0x0F:ub\n"
-      // Combine pairs: (odd << 4) | (even & 0x0F)
-      "or (M1_NM, 32) OUT_UB(0,0)<1> TMP_UB(0,0)<2;1,0> TMP_UB(0,1)<2;1,0>\n"
+      ".decl TMP_UB v_type=G type=UB num_elts=32 align=32\n"
+      // Process all 64 input bytes -> 32 output bytes
+      // Each output byte packs two input nybbles: OUT[i] = (IN[2i+1] & 0xF) << 4 | (IN[2i] & 0xF)
+      "and (M1_NM, 32) OUT_UB(0,0)<1> IN_UB(0,0)<2;1,0> 0x0F:ub\n"        // Lower nybbles from even indices
+      "shl (M1_NM, 32) TMP_UB(0,0)<1> IN_UB(0,1)<2;1,0> 4:uw\n"           // Upper nybbles from odd indices (shifted)
+      "and (M1_NM, 32) TMP_UB(0,0)<1> TMP_UB(0,0)<1;1,0> 0xF0:ub\n"      // Mask to keep only upper nybble
+      "or (M1_NM, 32) OUT_UB(0,0)<1> OUT_UB(0,0)<1;1,0> TMP_UB(0,0)<1;1,0>\n"  // Combine
       "}\n"
       : "=rw"(dst0)
-      : "rw"(src0), "rw.u"(lshifts)
+      : "rw"(src0)
     );
 #else
   CUTE_INVALID_CONTROL_PATH("Not Xe");
