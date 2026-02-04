@@ -130,12 +130,11 @@ auto choose_xe_reorder_impl(SLayout const& slayout,   // (src thr, src val) -> c
     return Xe_Reorder<rclass, SType, DType>{};
   else if constexpr (rclass == ReorderKind::UU_Universal)
     return Universal_Reorder_UU<SType, DType>{};
-  else if constexpr (is_subbyte_v<SType>)
-    return ReorderDispatchConvertRelayout{};
-  else if constexpr (is_subbyte_v<DType>)
-    return ReorderDispatchRelayoutConvert{};
   else if constexpr (!is_same_v<remove_cv_t<SType>, remove_cv_t<DType>>)
-    return ReorderDispatchConvertRelayout{};
+    // Type conversion without specialized implementation: use Universal_Reorder_UU
+    // This handles element-wise conversion; layout transformation is handled by reorder_impl wrapper
+    // Avoids recursive dispatch which is incompatible with SYCL kernels
+    return Universal_Reorder_UU<SType, DType>{};
   else
     return ReorderDispatchXeGeneric{};
 }
