@@ -442,27 +442,27 @@ TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, tensor_conversion_half_to_float) {
 }
 
 // ============================================================================
-// Sub-byte Type Conversion Tests (Expected Failures)
+// Sub-byte Type Conversion Tests
 // ============================================================================
-// Note: Sub-byte types (uint4_t, int4_t) trigger SYCL kernel recursion errors
-// in the CuTe reorder algorithm due to the recursive nature of the reorder()
-// algorithm which is incompatible with SYCL kernel constraints.
+// Note: Sub-byte types (uint4_t, int4_t) previously triggered SYCL kernel recursion errors.
+// This has been fixed by adding specialized Xe_Reorder implementations for uint8_t -> uint4_t
+// and int8_t -> int4_t conversions to avoid the recursive reorder path.
 
-// SubgroupTensor sub-byte conversions (expected failures)
+// SubgroupTensor sub-byte conversions (now fixed with specialized Xe_Reorder)
 
-// TEST(PVC_CuTe_Xe_Reorder_Conversion, DISABLED_conversion_uint8_to_uint4_subgroup) {
-//   ConversionSubgroupTest<uint8_t, uint4_t, 8, 16, 400>::run();
-// }
+TEST(PVC_CuTe_Xe_Reorder_Conversion, conversion_uint8_to_uint4_subgroup) {
+  ConversionSubgroupTest<uint8_t, uint4_t, 8, 16, 400>::run();
+}
 
-// TEST(PVC_CuTe_Xe_Reorder_Conversion, DISABLED_conversion_int8_to_int4_subgroup) {
-//   ConversionSubgroupTest<int8_t, int4_t, 8, 16, 401>::run();
-// }
+TEST(PVC_CuTe_Xe_Reorder_Conversion, conversion_int8_to_int4_subgroup) {
+  ConversionSubgroupTest<int8_t, int4_t, 8, 16, 401>::run();
+}
 
-// Tensor-based sub-byte conversions (expected failures)
-// TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, DISABLED_conversion_uint8_to_uint4_tensor) {
-//   ConversionTensorTest<uint8_t, uint4_t, 8, 16, 402>::run();
-// }
+// Tensor-based sub-byte conversions (now fixed with specialized Xe_Reorder)
+TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, conversion_uint8_to_uint4_tensor) {
+  ConversionTensorTest<uint8_t, uint4_t, 8, 16, 402>::run();
+}
 
-// TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, DISABLED_conversion_int8_to_int4_tensor) {
-//   ConversionTensorTest<int8_t, int4_t, 8, 16, 403>::run();
-// }
+TEST(PVC_CuTe_Xe_Reorder_Conversion_Tensor, conversion_int8_to_int4_tensor) {
+  ConversionTensorTest<int8_t, int4_t, 8, 16, 403>::run();
+}

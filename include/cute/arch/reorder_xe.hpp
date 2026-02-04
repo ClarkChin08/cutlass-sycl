@@ -1423,4 +1423,42 @@ struct Xe_Reorder<ReorderKind::UV, uint4_t, uint4_t>
 template <> struct Xe_Reorder<ReorderKind::UV, int4_t, int4_t>             : Xe_Reorder<ReorderKind::UV, uint4_t, uint4_t> {};
 template <> struct Xe_Reorder<ReorderKind::UV, float_e2m1_t, float_e2m1_t> : Xe_Reorder<ReorderKind::UV, uint4_t, uint4_t> {};
 
+// uint8_t -> uint4_t narrowing conversion (UU: unit-to-unit)
+// Truncates each uint8_t value to its lower 4 bits and packs pairs into bytes
+template <>
+struct Xe_Reorder<ReorderKind::UU, uint8_t, uint4_t>
+{
+  using SRegisters = intel::uchar4[1];  // 64 uint8_t elements (64 bytes)
+  using DRegisters = intel::uchar2[1];  // 64 uint4_t elements packed into 32 bytes
+
+  CUTE_HOST_DEVICE static void
+  reorder(intel::uchar4 const& src0, intel::uchar2& dst0)
+  {
+#if defined(CUTE_ARCH_REORDER_XE_ENABLED)
+    const uint32_t lshifts = 0x00000004;
+    asm (     /* Narrowing conversion: 64 uint8 -> 64 uint4 (packed in 32 bytes) */
+      "{\n"
+      ".decl IN_UB  v_type=G type=UB num_elts=64 alias=<%1,0>\n"
+      ".decl OUT_UB v_type=G type=UB num_elts=32 alias=<%0,0>\n"
+      ".decl LSHIFTS v_type=G type=UW num_elts=2 alias=<%2,0>\n"
+      ".decl TMP_UB v_type=G type=UB num_elts=64 align=64\n"
+      // Mask lower 4 bits from odd elements and shift left by 4
+      "shl (M1_NM, 32) TMP_UB(0,0)<2> IN_UB(0,1)<2;1,0> LSHIFTS(0,0)<0;1,0>\n"
+      // Mask lower 4 bits from even elements
+      "and (M1_NM, 32) TMP_UB(0,1)<2> IN_UB(0,0)<2;1,0> 0x0F:ub\n"
+      // Combine pairs: (odd << 4) | (even & 0x0F)
+      "or (M1_NM, 32) OUT_UB(0,0)<1> TMP_UB(0,0)<2;1,0> TMP_UB(0,1)<2;1,0>\n"
+      "}\n"
+      : "=rw"(dst0)
+      : "rw"(src0), "rw.u"(lshifts)
+    );
+#else
+  CUTE_INVALID_CONTROL_PATH("Not Xe");
+#endif
+  }
+};
+
+// int8_t -> int4_t narrowing conversion (reuse uint8_t -> uint4_t implementation)
+template <> struct Xe_Reorder<ReorderKind::UU, int8_t, int4_t> : Xe_Reorder<ReorderKind::UU, uint8_t, uint4_t> {};
+
 } // end namespace cute
